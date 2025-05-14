@@ -21,21 +21,33 @@ def processar_orcamento(uploaded_file):
     raise ValueError("Colunas esperadas não encontradas.")
 
 # Função para carregar banco SINAPI embutido
-def carregar_banco_sinapi():
-    try:
-        df = pd.read_csv(
-            "banco_sinapi_profissionais_detalhado.csv",
-            sep=";",
-            encoding="utf-8",
-            on_bad_lines="skip",
+"skip",
             engine="python"
         )
-        df.rename(columns={"código_composição": "codigo_composicao"}, inplace=True)
+
+        # Renomear colunas para uso interno padronizado
+        df.rename(columns={
+            "CODIGO DA COMPOSICAO": "codigo_composicao",
+            "DESCRIÇÃO ITEM": "descricao_item",
+            "TIPO ITEM": "tipo_item",
+            "COEFICIENTE": "coeficiente"
+        }, inplace=True)
+
+        # Filtra apenas mão de obra
+        df = df[df["tipo_item"].str.lower().str.contains("mão de obra", na=False)]
+
+        # Trata tipo da coluna coeficiente
+        df["coeficiente"] = pd.to_numeric(df["coeficiente"], errors="coerce")
+        df.dropna(subset=["coeficiente"], inplace=True)
+
+        # Prepara o dataframe final para uso
         df["codigo_composicao"] = df["codigo_composicao"].astype(str).str.zfill(4)
-        return df
+        return df[["codigo_composicao", "descricao_item", "coeficiente"]]
+
     except Exception as e:
         st.error(f"Erro ao carregar banco SINAPI: {e}")
         return None
+
 # Função para gerar cronograma
 def gerar_cronograma(df_orcamento, sinapi_df, data_inicio, prazo_dias):
     cronograma = []
