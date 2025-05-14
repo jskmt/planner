@@ -30,8 +30,7 @@ def carregar_banco_sinapi():
             on_bad_lines="skip",
             engine="python"
         )
-        # Renomeia a coluna correta
-        df.rename(columns={"Código da Composição": "codigo_composicao"}, inplace=True)
+        df.rename(columns={"código_composição": "codigo_composicao"}, inplace=True)
         df["codigo_composicao"] = df["codigo_composicao"].astype(str).str.zfill(4)
         return df
     except Exception as e:
