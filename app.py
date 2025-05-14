@@ -27,15 +27,16 @@ def carregar_banco_sinapi():
             "banco_sinapi_profissionais_detalhado.csv",
             sep=";",
             encoding="utf-8",
-            on_bad_lines="skip",  # ignora linhas quebradas
+            on_bad_lines="skip",
             engine="python"
         )
+        # Renomeia a coluna correta
+        df.rename(columns={"Código da Composição": "codigo_composicao"}, inplace=True)
         df["codigo_composicao"] = df["codigo_composicao"].astype(str).str.zfill(4)
         return df
     except Exception as e:
         st.error(f"Erro ao carregar banco SINAPI: {e}")
         return None
-
 # Função para gerar cronograma
 def gerar_cronograma(df_orcamento, sinapi_df, data_inicio, prazo_dias):
     cronograma = []
