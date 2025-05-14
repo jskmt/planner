@@ -56,40 +56,69 @@ def carregar_banco_sinapi():
 
 
 # Função para gerar cronograma
-def gerar_cronograma(df_orcamento, sinapi_df, data_inicio, prazo_dias):
-    cronograma = []
+def gerar_cronograma(planilha, banco_sinapi):
+    try:
+        df_orc = pd.read_excel(planilha)
 
-    for _, linha in df_orcamento.iterrows():
-        cod = linha["codigo"]
-        qtd = linha["quantidade"]
+        # Renomeia as colunas para evitar erro com nomes diferentes
+        df_orc.rename(columns=lambda x: x.strip().upper(), inplace=True)
 
-        comp = sinapi_df[sinapi_df["codigo_composicao"] == cod]
+        # Corrige nome das colunas esperadas
+        col_codigo = [col for col in df_orc.columns if "CÓDIGO" in col][0]
+        col_servico = [col for col in df_orc.columns if "INSUMO" in col or "SERVIÇO" in col][0]
+        col_quant = [col for col in df_orc.columns if "QUANT" in col][0]
 
-        if comp.empty:
-            continue
+        df_orc = df_orc[[col_codigo, col_servico, col_quant]]
+        df_orc.columns = ["codigo_composicao", "descricao", "quantidade"]
 
-        for _, prof in comp.iterrows():
-            nome_prof = prof["descricao_item"]
-            prod = prof["producao_hora"]
-            if pd.isna(prod) or prod == 0:
+        # Limpa e normaliza os códigos de composição
+        df_orc["codigo_composicao"] = (
+            df_orc["codigo_composicao"]
+            .astype(str)
+            .str.replace(r"[^\d]", "", regex=True)
+            .str.zfill(7)
+        )
+
+        banco_sinapi["codigo_composicao"] = (
+            banco_sinapi["codigo_composicao"]
+            .astype(str)
+            .str.replace(r"[^\d]", "", regex=True)
+            .str.zfill(7)
+        )
+
+        cronograma = []
+
+        for _, row in df_orc.iterrows():
+            codigo = row["codigo_composicao"]
+            quantidade = row["quantidade"]
+
+            comp = banco_sinapi[banco_sinapi["codigo_composicao"] == codigo]
+            if comp.empty:
                 continue
 
-            horas_totais = qtd / prod
-            dias_trabalho = horas_totais / 8  # considerando 8h/dia
-            data_fim = data_inicio + datetime.timedelta(days=round(dias_trabalho))
+            for _, prof in comp.iterrows():
+                horas_totais = quantidade * prof["coeficiente"]
+                cronograma.append({
+                    "Composição": codigo,
+                    "Serviço": row["descricao"],
+                    "Profissional": prof["descricao_item"],
+                    "Horas Totais": round(horas_totais, 2)
+                })
 
-            cronograma.append({
-                "Serviço": linha["descricao"],
-                "Profissional": nome_prof,
-                "Qtd. Serviço": qtd,
-                "Produtividade (h/un)": round(1/prod, 2),
-                "Horas Totais": round(horas_totais, 2),
-                "Dias": round(dias_trabalho, 1),
-                "Início": data_inicio.strftime("%d/%m/%Y"),
-                "Término": data_fim.strftime("%d/%m/%Y")
-            })
+        if not cronograma:
+            st.error("Nenhum item do orçamento corresponde ao banco SINAPI.")
+            return
 
-    return pd.DataFrame(cronograma)
+        df_crono = pd.DataFrame(cronograma)
+        st.success("Cronograma gerado com sucesso!")
+        st.dataframe(df_crono)
+
+        csv = df_crono.to_csv(index=False).encode("utf-8")
+        st.download_button("📥 Baixar Cronograma", data=csv, file_name="cronograma.csv", mime="text/csv")
+
+    except Exception as e:
+        st.error(f"Erro ao processar a planilha: {e}")
+
 
 # Interface Streamlit
 st.title("Planejador de Obra - Cronograma Automático via SINAPI")
