@@ -23,7 +23,13 @@ def processar_orcamento(uploaded_file):
 # Função para carregar banco SINAPI embutido
 def carregar_banco_sinapi():
     try:
-        df = pd.read_csv("banco_sinapi_profissionais_detalhado.csv", sep=";", encoding="utf-8")
+        df = pd.read_csv(
+            "banco_sinapi_profissionais_detalhado.csv",
+            sep=";",
+            encoding="utf-8",
+            on_bad_lines="skip",  # ignora linhas quebradas
+            engine="python"
+        )
         df["codigo_composicao"] = df["codigo_composicao"].astype(str).str.zfill(4)
         return df
     except Exception as e:
