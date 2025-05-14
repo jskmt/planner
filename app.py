@@ -14,7 +14,8 @@ def carregar_banco_sinapi(caminho_csv):
 
 def encontrar_por_nome(descricao, banco):
     desc_normalizada = descricao.lower().strip()
-    candidatos = banco[banco['DESCRICAO DA COMPOSICAO'].str.lower().str.contains(desc_normalizada[:10])]
+    candidatos = banco[banco['DESCRICAO DA COMPOSICAO'].str.lower().str.contains(desc_normalizada[:10], na=False)]
+    st.write(f"🔍 Buscando por nome: '{descricao[:10]}' → {len(candidatos)} encontrados")
     return candidatos
 
 def mapear_colunas(df):
@@ -29,11 +30,11 @@ def mapear_colunas(df):
         for padrao in padroes:
             for col_lower, col_original in colunas_lower.items():
                 if padrao in col_lower:
-                    mapeamento[chave] = col_original
+                    mapeamento[kh := chave] = col_original
                     break
 
     if len(mapeamento) < 3:
-        raise ValueError("A planilha não contém colunas esperadas como 'Código', 'Descrição' ou 'Quant.'.")
+        raise ValueError("A planilha não contém colunas esperadas como 'Código', 'Descrição' ou 'Quant.'")
 
     return mapeamento
 
@@ -59,6 +60,7 @@ def gerar_cronograma(planilha, banco, data_inicio, prazo_dias):
             if comp.empty:
                 comp = encontrar_por_nome(descricao, banco)
             if comp.empty:
+                st.warning(f"⚠️ Nenhuma correspondência para '{descricao}' ({codigo})")
                 continue
 
             profissionais = comp[comp['TIPO ITEM'].str.lower() == 'mão de obra']
