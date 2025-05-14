@@ -17,36 +17,36 @@ def encontrar_por_nome(descricao, banco):
     candidatos = banco[banco['descricao_composicao'].str.lower().str.contains(desc_normalizada[:10])]
     return candidatos
 
+def mapear_colunas(df):
+    colunas_originais = df.columns.str.strip().str.lower()
+    mapeamento = {}
+
+    for idx, col in enumerate(colunas_originais):
+        if "código" in col and not "item" in col:
+            mapeamento["codigo"] = df.columns[idx]
+        elif "descrição" in col or "serviço" in col:
+            mapeamento["descricao"] = df.columns[idx]
+        elif "quant" in col:
+            mapeamento["quantidade"] = df.columns[idx]
+
+    if len(mapeamento) < 3:
+        raise ValueError("A planilha não contém colunas esperadas como 'CÓDIGO', 'INSUMO/SERVIÇO' ou 'QUANTIDADE'.")
+    
+    return mapeamento
+
 def gerar_cronograma(planilha, banco, data_inicio, prazo_dias):
     try:
         df = pd.read_excel(planilha, engine="openpyxl")
-        df.columns = df.columns.str.strip().str.upper()
-
-        # Mapeamento inteligente
-        mapa_colunas = {
-            'CÓDIGO': ['CÓDIGO', 'CODIGO', 'CÓDIGO DA COMPOSIÇÃO'],
-            'INSUMO/SERVIÇO': ['INSUMO/SERVIÇO', 'DESCRIÇÃO', 'DESCRIÇÃO COMPLETA', 'SERVIÇO'],
-            'QUANTIDADE': ['QUANTIDADE', 'QUANT.', 'QTDE']
-        }
-
-        colunas_mapeadas = {}
-        for padrao, opcoes in mapa_colunas.items():
-            for col in df.columns:
-                if col in opcoes:
-                    colunas_mapeadas[padrao] = col
-                    break
-
-        if len(colunas_mapeadas) < 3:
-            raise ValueError("A planilha não contém colunas esperadas como 'CÓDIGO', 'INSUMO/SERVIÇO' ou 'QUANTIDADE'.")
+        colunas = mapear_colunas(df)
 
         cronograma = []
         dia_atual = data_inicio
 
         for _, linha in df.iterrows():
-            codigo = str(linha[colunas_mapeadas['CÓDIGO']]).strip()
-            descricao = str(linha[colunas_mapeadas['INSUMO/SERVIÇO']]).strip()
+            codigo = str(linha[colunas['codigo']]).strip()
+            descricao = str(linha[colunas['descricao']]).strip()
             try:
-                quantidade = float(str(linha[colunas_mapeadas['QUANTIDADE']]).replace(',', '.'))
+                quantidade = float(str(linha[colunas['quantidade']]).replace(',', '.'))
             except:
                 continue
 
@@ -60,9 +60,9 @@ def gerar_cronograma(planilha, banco, data_inicio, prazo_dias):
             for _, prof in profissionais.iterrows():
                 nome_prof = prof['descrição item']
                 coef = prof['coeficiente']
-                horas = quantidade * coef * 8  # 8h/dia * coef
+                horas = quantidade * coef * 8  # 8h/dia
 
-                duracao_dias = max(1, round(horas / 8))  # assume 8h por dia
+                duracao_dias = max(1, round(horas / 8))
                 data_fim = dia_atual + timedelta(days=duracao_dias - 1)
 
                 cronograma.append({
@@ -76,7 +76,7 @@ def gerar_cronograma(planilha, banco, data_inicio, prazo_dias):
 
                 dia_atual = data_fim + timedelta(days=1)
                 if (dia_atual - data_inicio).days > prazo_dias:
-                    st.warning("⚠️ O prazo informado foi excedido. Alguns serviços ultrapassam o prazo total.")
+                    st.warning("⚠️ O prazo informado foi excedido.")
                     break
 
         if not cronograma:
@@ -88,21 +88,18 @@ def gerar_cronograma(planilha, banco, data_inicio, prazo_dias):
         st.error(f"Erro ao processar a planilha:\n\n{e}")
         return None
 
-
-# --- Interface do usuário ---
+# --- Interface ---
 sinapi = carregar_banco_sinapi("banco_sinapi_profissionais_detalhado.csv")
 
 arquivo_planilha = st.file_uploader("📎 Faça upload da planilha orçamentária", type=["xlsx"])
-
 data_inicio = st.date_input("📆 Data de início da obra", value=datetime.today())
 prazo_dias = st.number_input("⏱️ Prazo total de execução (em dias)", min_value=1, value=30)
 
 if arquivo_planilha and sinapi is not None:
-    st.success("✅ Planilha carregada com sucesso!")
+    st.success("✅ Planilha carregada!")
     df_cronograma = gerar_cronograma(arquivo_planilha, sinapi, data_inicio, prazo_dias)
     if df_cronograma is not None:
         st.subheader("📊 Cronograma Gerado")
         st.dataframe(df_cronograma)
-
         csv = df_cronograma.to_csv(index=False).encode('utf-8')
         st.download_button("⬇️ Baixar cronograma (.csv)", csv, "cronograma.csv", "text/csv")
