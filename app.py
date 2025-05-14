@@ -32,15 +32,13 @@ def gerar_cronograma(planilha, banco_sinapi):
         df_orc.rename(columns=lambda x: x.strip().upper(), inplace=True)
 
         # Identifica colunas de código, serviço e quantidade
-                try:
+                        try:
             col_codigo = next(col for col in df_orc.columns if "CÓDIGO" in col)
             col_servico = next(col for col in df_orc.columns if "INSUMO" in col or "SERVIÇO" in col)
             col_quant = next(col for col in df_orc.columns if "QUANT" in col)
         except StopIteration:
             st.error("Erro: A planilha não contém colunas esperadas como 'CÓDIGO', 'INSUMO/SERVIÇO' ou 'QUANTIDADE'.")
             return
-
-
         df_orc = df_orc[[col_codigo, col_servico, col_quant]]
         df_orc.columns = ["codigo_composicao", "descricao", "quantidade"]
 
