@@ -1,3 +1,5 @@
+import pandas as pd
+
 def extrair_composicoes_planilha_padroes_empresa(caminho_arquivo):
     # Lê a planilha com as composições
     df = pd.read_excel(caminho_arquivo, sheet_name=0)
