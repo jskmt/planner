@@ -1,3 +1,5 @@
+import pandas as pd
+
 def calcular_cronograma(df_orcamento, df_sinapi, data_inicio_str, prazo_total_dias):
     # Converter string de data para objeto datetime
     data_inicio = datetime.strptime(data_inicio_str, "%d/%m/%Y")
