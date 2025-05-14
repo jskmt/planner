@@ -2,76 +2,62 @@ import streamlit as st
 import pandas as pd
 import io
 
-st.set_page_config(page_title="Planejador de Obra")
-
-st.title("Planejador de Obra com Banco SINAPI Embutido")
-
-data_inicio = st.date_input("Data de início da obra")
-prazo_total = st.number_input("Prazo total da obra (em dias)", min_value=1)
-
-uploaded_file = st.file_uploader("Envie a planilha orçamentária (.xlsx)", type="xlsx")
-
-# --- Banco SINAPI embutido ---
-sinapi_csv = """
-codigo_composicao;descricao_atividade;profissional;quantidade_por_atividade;produtividade_dia
-95571;SERVIÇO DE EXEMPLO 1;Pedreiro;10;5
-95572;SERVIÇO DE EXEMPLO 2;Servente;20;10
-95573;SERVIÇO DE EXEMPLO 3;Armador;5;2
-"""  # Aqui você insere todo o conteúdo real do CSV convertido para texto
-
-df_sinapi = pd.read_csv(io.StringIO(sinapi_csv), sep=";")
-
-if uploaded_file:
+# Carrega o banco SINAPI embutido
+@st.cache_data
+def carregar_banco_sinapi():
     try:
-        # Detecta automaticamente onde começa a tabela
-        xls = pd.ExcelFile(uploaded_file)
-        for i in range(0, 20):  # Verifica até 20 primeiras linhas
-            df_temp = pd.read_excel(xls, skiprows=i)
-            if "Código" in df_temp.columns and "Descrição" in df_temp.columns:
-                df_orcamento = df_temp
-                break
-        else:
-            st.error("Erro: Não foram encontradas as colunas necessárias (Código, Descrição, Quant.).")
-            st.stop()
+        sinapi_data = """codigo_servico,descricao_servico,codigo_profissional,profissional,unidade,quantidade,hora_homens
+0001,LADRILHO CERÂMICO PAREDE,101,Servente,MH,0.35,0.7
+0001,LADRILHO CERÂMICO PAREDE,102,Pedreiro,MH,0.65,1.3
+0002,REBOCO INTERNO,101,Servente,MH,0.25,0.5
+0002,REBOCO INTERNO,102,Pedreiro,MH,0.75,1.5
+"""  # Exemplo mínimo
+        df = pd.read_csv(io.StringIO(sinapi_data), sep=",")
+        return df
+    except Exception as e:
+        st.error(f"Erro ao carregar banco SINAPI: {e}")
+        return None
 
-        df_orcamento.columns = df_orcamento.columns.str.strip()
-        col_codigo = 'Código'
-        col_descricao = 'Descrição'
-        col_quantidade = [col for col in df_orcamento.columns if 'Quant' in col][0]
-
-        df_orcamento = df_orcamento[[col_codigo, col_descricao, col_quantidade]].dropna()
-
-        # Geração do cronograma
-        cronograma = []
-        for _, row in df_orcamento.iterrows():
-            codigo = str(row[col_codigo]).strip()
-            descricao = row[col_descricao]
-            quantidade = float(row[col_quantidade])
-
-            sinapi_match = df_sinapi[df_sinapi['codigo_composicao'].astype(str) == codigo]
-
-            if not sinapi_match.empty:
-                for _, sinapi_row in sinapi_match.iterrows():
-                    profissional = sinapi_row['profissional']
-                    produtividade = sinapi_row['produtividade_dia']
-                    duracao = quantidade / produtividade if produtividade > 0 else 0
-
-                    cronograma.append({
-                        "Código": codigo,
-                        "Serviço": descricao,
-                        "Profissional": profissional,
-                        "Quantidade": quantidade,
-                        "Produtividade (dia)": produtividade,
-                        "Duração estimada (dias)": round(duracao, 2)
-                    })
-
-        if cronograma:
-            df_crono = pd.DataFrame(cronograma)
-            st.success("Cronograma gerado com sucesso!")
-            st.dataframe(df_crono)
-            st.download_button("Baixar Cronograma (.xlsx)", df_crono.to_excel(index=False), file_name="cronograma.xlsx")
-        else:
-            st.warning("Nenhuma correspondência com o banco SINAPI.")
-
+# Processa a planilha de orçamento
+def processar_orcamento(arquivo):
+    try:
+        for i in range(0, 15):
+            df = pd.read_excel(arquivo, skiprows=i)
+            if "Código" in df.columns and "Descrição" in df.columns and "Quant." in df.columns:
+                df = df[["Código", "Descrição", "Quant."]].dropna()
+                df.columns = ["codigo", "descricao", "quantidade"]
+                return df
+        raise ValueError("Não foram encontradas todas as colunas esperadas: Código, Descrição, Quant.")
     except Exception as e:
         st.error(f"Erro ao processar a planilha: {e}")
+        return None
+
+# Gera o cronograma com base no banco SINAPI
+def gerar_cronograma(df_orc, df_sinapi):
+    cronograma = []
+    for _, linha in df_orc.iterrows():
+        cod = str(linha["codigo"]).strip()
+        quant = float(str(linha["quantidade"]).replace(",", "."))
+        comp_sinapi = df_sinapi[df_sinapi["codigo_servico"] == cod]
+        for _, prof in comp_sinapi.iterrows():
+            total_horas = quant * float(prof["hora_homens"])
+            cronograma.append({
+                "Código Serviço": cod,
+                "Descrição Serviço": linha["descricao"],
+                "Profissional": prof["profissional"],
+                "Quantidade Total (h)": round(total_horas, 2)
+            })
+    return pd.DataFrame(cronograma)
+
+# Streamlit UI
+st.title("Planejador de Obra")
+arquivo_orcamento = st.file_uploader("Faça upload da planilha de orçamento (.xlsx)", type=["xlsx"])
+if arquivo_orcamento:
+    df_orc = processar_orcamento(arquivo_orcamento)
+    df_sinapi = carregar_banco_sinapi()
+    if df_orc is not None and df_sinapi is not None:
+        cronograma = gerar_cronograma(df_orc, df_sinapi)
+        st.success("Cronograma gerado com sucesso!")
+        st.dataframe(cronograma)
+        csv = cronograma.to_csv(index=False).encode("utf-8")
+        st.download_button("Baixar Cronograma", csv, "cronograma.csv", "text/csv")
