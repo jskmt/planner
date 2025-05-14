@@ -1,102 +1,98 @@
 import streamlit as st
 import pandas as pd
-import io
+from datetime import datetime, timedelta
 
-# Título
 st.set_page_config(page_title="Planejador de Obra", layout="centered")
-st.title("📅 Planejador de Obra com base no SINAPI")
+st.title("📅 Planejador de Obra - Cronograma Automatizado")
 
-# Inputs do usuário
-uploaded_file = st.file_uploader("Faça upload da planilha orçamentária", type=["xlsx"])
-data_inicio = st.date_input("Data de início da obra")
-prazo_dias = st.number_input("Prazo total (em dias)", min_value=1, value=30)
-
-# Carrega banco SINAPI interno
+# Carrega o banco SINAPI interno
 @st.cache_data
 def carregar_banco_sinapi():
     try:
-        with open("banco_sinapi_profissionais_detalhado.csv", "r", encoding="utf-8") as f:
-            return pd.read_csv(f, sep=",", engine="python")
+        df = pd.read_csv("banco_sinapi_profissionais_detalhado.csv", sep=",", encoding="utf-8")
+        df.columns = df.columns.str.strip().str.lower()
+        return df
     except Exception as e:
         st.error(f"Erro ao carregar banco SINAPI: {e}")
         return None
 
-banco_sinapi = carregar_banco_sinapi()
-
-# Função principal
-def gerar_cronograma(planilha, banco_sinapi):
+# Função para gerar cronograma
+def gerar_cronograma(planilha, data_inicio, prazo_dias, sinapi):
     try:
-        df_orc = pd.read_excel(planilha)
+        df_orc = pd.read_excel(planilha, engine="openpyxl")
+        df_orc.columns = df_orc.columns.str.strip().str.upper()
 
-        # Renomeia colunas para facilitar busca
-        df_orc.rename(columns=lambda x: x.strip().upper(), inplace=True)
-
-        # Identifica colunas de código, serviço e quantidade
-                        try:
+        try:
             col_codigo = next(col for col in df_orc.columns if "CÓDIGO" in col)
             col_servico = next(col for col in df_orc.columns if "INSUMO" in col or "SERVIÇO" in col)
             col_quant = next(col for col in df_orc.columns if "QUANT" in col)
         except StopIteration:
             st.error("Erro: A planilha não contém colunas esperadas como 'CÓDIGO', 'INSUMO/SERVIÇO' ou 'QUANTIDADE'.")
             return
-        df_orc = df_orc[[col_codigo, col_servico, col_quant]]
-        df_orc.columns = ["codigo_composicao", "descricao", "quantidade"]
 
-        # Padroniza os códigos
-        df_orc["codigo_composicao"] = (
-            df_orc["codigo_composicao"]
-            .astype(str)
-            .str.replace(r"[^\d]", "", regex=True)
-            .str.zfill(7)
-        )
-        banco_sinapi["codigo_composicao"] = (
-            banco_sinapi["codigo_composicao"]
-            .astype(str)
-            .str.replace(r"[^\d]", "", regex=True)
-            .str.zfill(7)
-        )
-
-        # Geração do cronograma
-        cronograma = []
-
+        atividades = []
         for _, row in df_orc.iterrows():
-            codigo = row["codigo_composicao"]
-            quantidade = row["quantidade"]
-
+            cod = str(row[col_codigo]).strip()
+            desc = str(row[col_servico]).strip()
             try:
-                quantidade = float(quantidade)
+                quant = float(str(row[col_quant]).replace(",", "."))
             except:
                 continue
 
-            comp = banco_sinapi[banco_sinapi["codigo_composicao"] == codigo]
+            comp = sinapi[sinapi["codigo_composicao"] == cod]
             if comp.empty:
                 continue
 
-            for _, prof in comp.iterrows():
-                horas_totais = quantidade * prof["coeficiente"]
-                cronograma.append({
-                    "Composição": codigo,
-                    "Serviço": row["descricao"],
-                    "Profissional": prof["descricao_item"],
-                    "Horas Totais": round(horas_totais, 2)
+            profs = comp[comp["tipo_item"] == "MÃO DE OBRA"]
+            for _, prof in profs.iterrows():
+                nome_prof = prof["descricao_item"]
+                coef = prof["coeficiente"]
+                total_horas = coef * quant
+                atividades.append({
+                    "Serviço": desc,
+                    "Profissional": nome_prof,
+                    "Horas Totais": round(total_horas, 2),
+                    "Código Composição": cod,
+                    "Quantidade": quant
                 })
 
-        if not cronograma:
-            st.error("Nenhum item do orçamento corresponde ao banco SINAPI.")
+        if not atividades:
+            st.warning("Nenhum item do orçamento corresponde ao banco SINAPI.")
             return
 
-        df_crono = pd.DataFrame(cronograma)
+        cronograma = []
+        dia_atual = datetime.strptime(data_inicio, "%Y-%m-%d")
+        dias_disponiveis = [dia_atual + timedelta(days=i) for i in range(prazo_dias)]
 
-        # Exibição e download
-        st.success("Cronograma gerado com sucesso!")
-        st.dataframe(df_crono)
+        for idx, atv in enumerate(atividades):
+            dia_execucao = dias_disponiveis[idx % len(dias_disponiveis)]
+            cronograma.append({
+                "Data": dia_execucao.strftime("%Y-%m-%d"),
+                "Serviço": atv["Serviço"],
+                "Profissional": atv["Profissional"],
+                "Horas previstas": atv["Horas Totais"],
+                "Código": atv["Código Composição"],
+                "Quantidade": atv["Quantidade"]
+            })
 
-        csv = df_crono.to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Baixar Cronograma", data=csv, file_name="cronograma.csv", mime="text/csv")
+        df_cronograma = pd.DataFrame(cronograma)
+        st.success("✅ Cronograma gerado com sucesso!")
+        st.dataframe(df_cronograma)
+
+        csv = df_cronograma.to_csv(index=False).encode("utf-8")
+        st.download_button("📥 Baixar Cronograma em CSV", csv, "cronograma_obra.csv", "text/csv")
 
     except Exception as e:
         st.error(f"Erro ao processar a planilha: {e}")
 
-# Execução
-if uploaded_file and banco_sinapi is not None:
-    gerar_cronograma(uploaded_file, banco_sinapi)
+# Inputs da interface
+with st.form("form_cronograma"):
+    planilha = st.file_uploader("📤 Envie sua planilha orçamentária (.xlsx)", type=["xlsx"])
+    data_inicio = st.date_input("📆 Data de início da obra", datetime.today())
+    prazo = st.number_input("⏳ Prazo total da obra (em dias)", min_value=1, value=30)
+    submitted = st.form_submit_button("Gerar Cronograma")
+
+    if submitted and planilha:
+        banco = carregar_banco_sinapi()
+        if banco is not None:
+            gerar_cronograma(planilha, str(data_inicio), prazo, banco)
