@@ -43,6 +43,8 @@ def mapear_colunas(df):
 def gerar_cronograma(planilha, banco, data_inicio, prazo_dias):
     try:
         df = pd.read_excel(planilha, engine="openpyxl")
+        st.write("Colunas encontradas na planilha:")
+        st.write(df.columns.tolist())
         colunas = mapear_colunas(df)
 
         cronograma = []
