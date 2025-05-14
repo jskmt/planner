@@ -14,8 +14,10 @@ def carregar_banco_sinapi():
 0002,REBOCO INTERNO,102,Pedreiro,MH,0.75,1.5
 0003,ALVENARIA DE BLOCO,102,Pedreiro,MH,1.2,2.4
 0003,ALVENARIA DE BLOCO,101,Servente,MH,0.8,1.6
-"""  # Banco reduzido de exemplo
-    return pd.read_csv(io.StringIO(sinapi_csv))
+"""  # Banco de exemplo
+    df = pd.read_csv(io.StringIO(sinapi_csv), dtype={"codigo_servico": str})
+    df["codigo_servico"] = df["codigo_servico"].str.zfill(4)
+    return df
 
 # Processar planilha orçamentária
 def processar_orcamento(uploaded_file):
@@ -24,6 +26,8 @@ def processar_orcamento(uploaded_file):
         if {"Código", "Descrição", "Quant."}.issubset(df.columns):
             df = df[["Código", "Descrição", "Quant."]].dropna()
             df.columns = ["codigo", "descricao", "quantidade"]
+            df["codigo"] = df["codigo"].astype(str).str.zfill(4)
+            df["quantidade"] = df["quantidade"].astype(str).str.replace(",", ".").astype(float)
             return df
     raise ValueError("Colunas esperadas não encontradas.")
 
@@ -31,12 +35,12 @@ def processar_orcamento(uploaded_file):
 def gerar_cronograma(df_orc, df_sinapi, data_inicio, prazo_total_dias):
     cronograma = []
     for _, item in df_orc.iterrows():
-        cod = str(item["codigo"]).zfill(4)
+        cod = item["codigo"]
         desc = item["descricao"]
-        quant = float(str(item["quantidade"]).replace(",", "."))
+        quant = item["quantidade"]
         comp = df_sinapi[df_sinapi["codigo_servico"] == cod]
         if comp.empty:
-            continue
+            continue  # Pula se não encontrar no banco
         for _, prof in comp.iterrows():
             horas_totais = quant * float(prof["hora_homens"])
             profs_necessarios = max(1, math.ceil(horas_totais / (prazo_total_dias * 8)))
