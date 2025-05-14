@@ -21,7 +21,13 @@ def processar_orcamento(uploaded_file):
     raise ValueError("Colunas esperadas não encontradas.")
 
 # Função para carregar banco SINAPI embutido
-"skip",
+def carregar_banco_sinapi():
+    try:
+        df = pd.read_csv(
+            "banco_sinapi_profissionais_detalhado.csv",
+            sep=",",
+            encoding="utf-8",
+            on_bad_lines="skip",
             engine="python"
         )
 
@@ -47,6 +53,7 @@ def processar_orcamento(uploaded_file):
     except Exception as e:
         st.error(f"Erro ao carregar banco SINAPI: {e}")
         return None
+
 
 # Função para gerar cronograma
 def gerar_cronograma(df_orcamento, sinapi_df, data_inicio, prazo_dias):
