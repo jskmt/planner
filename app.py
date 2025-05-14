@@ -18,21 +18,27 @@ def encontrar_por_nome(descricao, banco):
     return candidatos
 
 def mapear_colunas(df):
-    colunas_originais = df.columns.str.strip().str.lower()
+    colunas_lower = {col.lower().strip(): col for col in df.columns}
+
+    # mapeamento direto e flexível
     mapeamento = {}
 
-    for idx, col in enumerate(colunas_originais):
-        if "código" in col and not "item" in col:
-            mapeamento["codigo"] = df.columns[idx]
-        elif "descrição" in col or "serviço" in col:
-            mapeamento["descricao"] = df.columns[idx]
-        elif "quant" in col:
-            mapeamento["quantidade"] = df.columns[idx]
+    for chave, padroes in {
+        "codigo": ["código", "codigo"],
+        "descricao": ["descrição", "serviço", "insumo"],
+        "quantidade": ["quant", "quantidade"]
+    }.items():
+        for padrao in padroes:
+            for col_lower, col_original in colunas_lower.items():
+                if padrao in col_lower:
+                    mapeamento[chave] = col_original
+                    break
 
     if len(mapeamento) < 3:
-        raise ValueError("A planilha não contém colunas esperadas como 'CÓDIGO', 'INSUMO/SERVIÇO' ou 'QUANTIDADE'.")
-    
+        raise ValueError("A planilha não contém colunas esperadas como 'Código', 'Descrição' ou 'Quant.'.")
+
     return mapeamento
+
 
 def gerar_cronograma(planilha, banco, data_inicio, prazo_dias):
     try:
