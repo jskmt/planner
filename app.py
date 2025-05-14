@@ -1,31 +1,25 @@
 
 import streamlit as st
 import pandas as pd
-from extrator_composicoes_empresa import extrair_composicoes_planilha_padroes_empresa
-from datetime import datetime
+from extrator_composicoes_empresa import extrair_composicoes
 
-st.set_page_config(page_title="Planejador de Obra", layout="wide")
-
-st.title("🏗️ Planejador de Obra")
-st.markdown("Este aplicativo gera um cronograma de execução de obra a partir de uma planilha orçamentária padrão.")
-
-# Upload da planilha
-arquivo = st.file_uploader("📎 Faça upload da planilha orçamentária (.xlsx):", type=["xlsx"])
+st.title("Planejador de Obra")
 
 # Inputs do usuário
-col1, col2 = st.columns(2)
-with col1:
-    data_inicio = st.date_input("📅 Data de início da obra:", value=datetime.today())
-with col2:
-    prazo_dias = st.number_input("⏱️ Prazo total da obra (em dias):", min_value=1, value=90)
+data_inicio = st.date_input("Data de início da obra")
+prazo_total_dias = st.number_input("Prazo total (em dias)", min_value=1)
+arquivo = st.file_uploader("Envie a planilha orçamentária (.xlsx)", type=["xlsx"])
 
-# Processamento após o upload
+# Processamento da planilha
 if arquivo is not None:
     try:
-        df_itens = extrair_composicoes_planilha_padroes_empresa(arquivo)
-        st.success("✅ Planilha processada com sucesso!")
-        st.dataframe(df_itens.head(20), use_container_width=True)
-
-        st.info("👉 Agora conecte este orçamento ao banco de dados SINAPI para gerar o cronograma.")
+        composicoes = extrair_composicoes(arquivo)
+        st.success("Planilha processada com sucesso!")
+        st.write("Composições extraídas:")
+        st.dataframe(composicoes)
+        
+        # Aqui ainda entra a lógica de cronograma com banco SINAPI etc.
+        st.info("A próxima etapa é integrar com o banco SINAPI e gerar o cronograma.")
+    
     except Exception as e:
         st.error(f"Erro ao processar a planilha: {e}")
