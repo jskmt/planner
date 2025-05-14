@@ -1,81 +1,94 @@
 import streamlit as st
 import pandas as pd
-import io
-from datetime import datetime, timedelta
-import math
+import datetime
 
-# Carregar banco SINAPI embutido
-@st.cache_data
-def carregar_banco_sinapi():
-    sinapi_csv = """codigo_servico,descricao_servico,codigo_profissional,profissional,unidade,quantidade,hora_homens
-0001,LADRILHO CERÂMICO PAREDE,101,Servente,MH,0.35,0.7
-0001,LADRILHO CERÂMICO PAREDE,102,Pedreiro,MH,0.65,1.3
-0002,REBOCO INTERNO,101,Servente,MH,0.25,0.5
-0002,REBOCO INTERNO,102,Pedreiro,MH,0.75,1.5
-0003,ALVENARIA DE BLOCO,102,Pedreiro,MH,1.2,2.4
-0003,ALVENARIA DE BLOCO,101,Servente,MH,0.8,1.6
-"""  # Banco de exemplo
-    df = pd.read_csv(io.StringIO(sinapi_csv), dtype={"codigo_servico": str})
-    df["codigo_servico"] = df["codigo_servico"].str.zfill(4)
-    return df
-
-# Processar planilha orçamentária
+# Função para processar o orçamento
 def processar_orcamento(uploaded_file):
     for skip in range(0, 15):
         df = pd.read_excel(uploaded_file, skiprows=skip)
         if {"Código", "Descrição", "Quant."}.issubset(df.columns):
             df = df[["Código", "Descrição", "Quant."]].dropna()
             df.columns = ["codigo", "descricao", "quantidade"]
+            df = df[~df["quantidade"].astype(str).str.contains("Quant", na=False)]
             df["codigo"] = df["codigo"].astype(str).str.zfill(4)
-            df["quantidade"] = df["quantidade"].astype(str).str.replace(",", ".").astype(float)
+            df["quantidade"] = (
+                df["quantidade"].astype(str)
+                .str.replace(",", ".", regex=False)
+                .str.extract(r"([0-9.]+)")[0]
+                .astype(float)
+            )
             return df
     raise ValueError("Colunas esperadas não encontradas.")
 
-# Gerar cronograma com base na produtividade
-def gerar_cronograma(df_orc, df_sinapi, data_inicio, prazo_total_dias):
+# Função para carregar banco SINAPI embutido
+def carregar_banco_sinapi():
+    try:
+        df = pd.read_csv("banco_sinapi_profissionais_detalhado.csv", sep=";", encoding="utf-8")
+        df["codigo_composicao"] = df["codigo_composicao"].astype(str).str.zfill(4)
+        return df
+    except Exception as e:
+        st.error(f"Erro ao carregar banco SINAPI: {e}")
+        return None
+
+# Função para gerar cronograma
+def gerar_cronograma(df_orcamento, sinapi_df, data_inicio, prazo_dias):
     cronograma = []
-    for _, item in df_orc.iterrows():
-        cod = item["codigo"]
-        desc = item["descricao"]
-        quant = item["quantidade"]
-        comp = df_sinapi[df_sinapi["codigo_servico"] == cod]
+
+    for _, linha in df_orcamento.iterrows():
+        cod = linha["codigo"]
+        qtd = linha["quantidade"]
+
+        comp = sinapi_df[sinapi_df["codigo_composicao"] == cod]
+
         if comp.empty:
-            continue  # Pula se não encontrar no banco
+            continue
+
         for _, prof in comp.iterrows():
-            horas_totais = quant * float(prof["hora_homens"])
-            profs_necessarios = max(1, math.ceil(horas_totais / (prazo_total_dias * 8)))
-            dias_estimados = math.ceil(horas_totais / (profs_necessarios * 8))
+            nome_prof = prof["descricao_item"]
+            prod = prof["producao_hora"]
+            if pd.isna(prod) or prod == 0:
+                continue
+
+            horas_totais = qtd / prod
+            dias_trabalho = horas_totais / 8  # considerando 8h/dia
+            data_fim = data_inicio + datetime.timedelta(days=round(dias_trabalho))
+
             cronograma.append({
-                "Código Serviço": cod,
-                "Descrição Serviço": desc,
-                "Profissional": prof["profissional"],
-                "Total Horas-Homens": round(horas_totais, 2),
-                "Profissionais Necessários": profs_necessarios,
-                "Dias Estimados": dias_estimados,
-                "Início Previsto": data_inicio.strftime('%d/%m/%Y'),
-                "Término Previsto": (data_inicio + timedelta(days=dias_estimados)).strftime('%d/%m/%Y')
+                "Serviço": linha["descricao"],
+                "Profissional": nome_prof,
+                "Qtd. Serviço": qtd,
+                "Produtividade (h/un)": round(1/prod, 2),
+                "Horas Totais": round(horas_totais, 2),
+                "Dias": round(dias_trabalho, 1),
+                "Início": data_inicio.strftime("%d/%m/%Y"),
+                "Término": data_fim.strftime("%d/%m/%Y")
             })
+
     return pd.DataFrame(cronograma)
 
-# Interface do chatbot com Streamlit
-st.set_page_config(page_title="Planejador de Obra", layout="centered")
-st.title("🏗️ Planejador de Execução de Obra com Base no SINAPI")
+# Interface Streamlit
+st.title("Planejador de Obra - Cronograma Automático via SINAPI")
 
-uploaded_file = st.file_uploader("📤 Faça o upload da planilha de orçamento (.xlsx)", type=["xlsx"])
-data_inicio = st.date_input("📅 Data de início da obra", value=datetime.today())
-prazo_dias = st.number_input("⏱️ Prazo total da obra (em dias úteis)", min_value=1, value=30)
+uploaded_file = st.file_uploader("📤 Envie a planilha orçamentária", type=["xlsx"])
 
-if uploaded_file and data_inicio and prazo_dias:
+data_inicio = st.date_input("📅 Data de Início da Obra", datetime.date.today())
+prazo_dias = st.number_input("⏳ Prazo Total (dias)", min_value=1, value=90)
+
+if uploaded_file and st.button("📌 Gerar Cronograma"):
     try:
-        df_orc = processar_orcamento(uploaded_file)
-        df_sinapi = carregar_banco_sinapi()
-        cronograma = gerar_cronograma(df_orc, df_sinapi, data_inicio, prazo_dias)
-        if not cronograma.empty:
-            st.success("✅ Cronograma gerado com sucesso!")
-            st.dataframe(cronograma)
-            csv = cronograma.to_csv(index=False).encode("utf-8")
-            st.download_button("📥 Baixar Cronograma", data=csv, file_name="cronograma_execucao.csv", mime="text/csv")
-        else:
-            st.warning("⚠️ Nenhuma correspondência encontrada no banco SINAPI.")
+        orcamento_df = processar_orcamento(uploaded_file)
+        sinapi_df = carregar_banco_sinapi()
+
+        if sinapi_df is not None:
+            cronograma_df = gerar_cronograma(orcamento_df, sinapi_df, data_inicio, prazo_dias)
+
+            if not cronograma_df.empty:
+                st.success("✅ Cronograma gerado com sucesso!")
+                st.dataframe(cronograma_df)
+
+                csv = cronograma_df.to_csv(index=False).encode("utf-8")
+                st.download_button("⬇️ Baixar Cronograma (CSV)", csv, "cronograma_obra.csv", "text/csv")
+            else:
+                st.warning("⚠️ Nenhum item do orçamento corresponde ao banco SINAPI.")
     except Exception as e:
         st.error(f"Erro ao processar: {e}")
