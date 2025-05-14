@@ -1,9 +1,27 @@
+import streamlit as st
+import pandas as pd
+
+st.set_page_config(page_title="Planejador de Obra", layout="wide")
+st.title("📅 Planejador de Obra com Banco SINAPI")
+
+def carregar_banco_sinapi(caminho_csv):
+    try:
+        return pd.read_csv(caminho_csv, sep=",", encoding="utf-8")
+    except Exception as e:
+        st.error(f"Erro ao carregar banco SINAPI: {e}")
+        return None
+
+def encontrar_por_nome(descricao, banco):
+    desc_normalizada = descricao.lower().strip()
+    candidatos = banco[banco['descricao_composicao'].str.lower().str.contains(desc_normalizada[:10])]
+    return candidatos
+
 def gerar_cronograma(planilha, banco):
     try:
         df = pd.read_excel(planilha, engine="openpyxl")
         df.columns = df.columns.str.strip().str.upper()
 
-        # Mapear possíveis variações de nomes de colunas
+        # Mapeamento inteligente
         mapa_colunas = {
             'CÓDIGO': ['CÓDIGO', 'CODIGO', 'CÓDIGO DA COMPOSIÇÃO'],
             'INSUMO/SERVIÇO': ['INSUMO/SERVIÇO', 'DESCRIÇÃO', 'DESCRIÇÃO COMPLETA', 'SERVIÇO'],
@@ -40,7 +58,7 @@ def gerar_cronograma(planilha, banco):
             for _, prof in profissionais.iterrows():
                 nome_prof = prof['descrição item']
                 coef = prof['coeficiente']
-                horas = quantidade * coef * 8  # 8h/dia
+                horas = quantidade * coef * 8  # 8 horas por dia
                 cronograma.append({
                     "Serviço": descricao,
                     "Profissional": nome_prof,
@@ -56,3 +74,18 @@ def gerar_cronograma(planilha, banco):
     except Exception as e:
         st.error(f"Erro ao processar a planilha:\n\n{e}")
         return None
+
+# --- Interface do usuário ---
+sinapi = carregar_banco_sinapi("banco_sinapi_profissionais_detalhado.csv")
+
+arquivo_planilha = st.file_uploader("📎 Faça upload da planilha orçamentária", type=["xlsx"])
+
+if arquivo_planilha and sinapi is not None:
+    st.success("✅ Planilha carregada com sucesso!")
+    df_cronograma = gerar_cronograma(arquivo_planilha, sinapi)
+    if df_cronograma is not None:
+        st.subheader("📊 Cronograma Gerado")
+        st.dataframe(df_cronograma)
+
+        csv = df_cronograma.to_csv(index=False).encode('utf-8')
+        st.download_button("⬇️ Baixar cronograma (.csv)", csv, "cronograma.csv", "text/csv")
