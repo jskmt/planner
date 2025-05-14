@@ -26,14 +26,21 @@ def carregar_banco_sinapi():
 def ler_planilha_orcamento(uploaded_file):
     try:
         df = pd.read_excel(uploaded_file, engine="openpyxl", skiprows=7)
-        df = df[['CÓDIGO', 'INSUMO/SERVIÇO', 'QUANTIDADE']]
-        df = df.rename(columns={
-            'CÓDIGO': 'composicao',
-            'INSUMO/SERVIÇO': 'servico',
-            'QUANTIDADE': 'quantidade'
-        })
+        df.columns = [str(c).strip().upper() for c in df.columns]
+
+        # Tenta identificar as colunas principais
+        col_codigo = next((c for c in df.columns if "CÓDIGO" in c), None)
+        col_servico = next((c for c in df.columns if "INSUMO" in c or "SERVIÇO" in c), None)
+        col_qtd = next((c for c in df.columns if "QUANTIDADE" in c), None)
+
+        if not all([col_codigo, col_servico, col_qtd]):
+            raise ValueError("Não foi possível localizar todas as colunas necessárias (composição, serviço, quantidade).")
+
+        df = df[[col_codigo, col_servico, col_qtd]]
+        df.columns = ['composicao', 'servico', 'quantidade']
         df.dropna(subset=['composicao', 'servico', 'quantidade'], inplace=True)
         return df
+
     except Exception as e:
         st.error(f"Erro ao processar a planilha: {e}")
         return pd.DataFrame()
