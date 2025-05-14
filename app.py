@@ -14,13 +14,12 @@ def carregar_banco_sinapi(caminho_csv):
 
 def encontrar_por_nome(descricao, banco):
     desc_normalizada = descricao.lower().strip()
-    candidatos = banco[banco['descricao_composicao'].str.lower().str.contains(desc_normalizada[:10])]
+    candidatos = banco[banco['descricao_composicao'].str.lower().str.contains(desc_normalizada[:10], na=False)]
     return candidatos
 
 def mapear_colunas(df):
     colunas_lower = {col.lower().strip(): col for col in df.columns}
 
-    # mapeamento direto e flexível
     mapeamento = {}
 
     for chave, padroes in {
@@ -31,7 +30,9 @@ def mapear_colunas(df):
         for padrao in padroes:
             for col_lower, col_original in colunas_lower.items():
                 if padrao in col_lower:
-                    mapeamento[chave] = col_original
+                    mapeamento[k
+
+ey] = col_original
                     break
 
     if len(mapeamento) < 3:
@@ -39,12 +40,14 @@ def mapear_colunas(df):
 
     return mapeamento
 
-
 def gerar_cronograma(planilha, banco, data_inicio, prazo_dias):
     try:
-        df = pd.read_excel(planilha, engine="openpyxl")
-        st.write("Colunas encontradas na planilha:")
+        df = pd.read_excel(planilha, skiprows=4, engine="openpyxl")
+        df.columns = df.columns.astype(str).str.strip()
+
+        st.write("✅ Colunas detectadas na planilha:")
         st.write(df.columns.tolist())
+
         colunas = mapear_colunas(df)
 
         cronograma = []
@@ -68,7 +71,10 @@ def gerar_cronograma(planilha, banco, data_inicio, prazo_dias):
             for _, prof in profissionais.iterrows():
                 nome_prof = prof['descrição item']
                 coef = prof['coeficiente']
-                horas = quantidade * coef * 8  # 8h/dia
+                try:
+                    horas = quantidade * float(coef) * 8  # 8h/dia
+                except:
+                    continue
 
                 duracao_dias = max(1, round(horas / 8))
                 data_fim = dia_atual + timedelta(days=duracao_dias - 1)
@@ -99,12 +105,12 @@ def gerar_cronograma(planilha, banco, data_inicio, prazo_dias):
 # --- Interface ---
 sinapi = carregar_banco_sinapi("banco_sinapi_profissionais_detalhado.csv")
 
-arquivo_planilha = st.file_uploader("📎 Faça upload da planilha orçamentária", type=["xlsx"])
+arquivo_planilha = st.file_uploader("📎 Faça upload da planilha orçamentária (.xlsx)", type=["xlsx"])
 data_inicio = st.date_input("📆 Data de início da obra", value=datetime.today())
 prazo_dias = st.number_input("⏱️ Prazo total de execução (em dias)", min_value=1, value=30)
 
 if arquivo_planilha and sinapi is not None:
-    st.success("✅ Planilha carregada!")
+    st.success("✅ Planilha carregada com sucesso.")
     df_cronograma = gerar_cronograma(arquivo_planilha, sinapi, data_inicio, prazo_dias)
     if df_cronograma is not None:
         st.subheader("📊 Cronograma Gerado")
