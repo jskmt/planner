@@ -30,15 +30,14 @@ def mapear_colunas(df):
         for padrao in padroes:
             for col_lower, col_original in colunas_lower.items():
                 if padrao in col_lower:
-                    mapeamento[k
-
-ey] = col_original
+                    mapeamento[chave] = col_original
                     break
 
     if len(mapeamento) < 3:
         raise ValueError("A planilha não contém colunas esperadas como 'Código', 'Descrição' ou 'Quant.'.")
 
     return mapeamento
+
 
 def gerar_cronograma(planilha, banco, data_inicio, prazo_dias):
     try:
