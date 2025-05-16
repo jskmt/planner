@@ -20,14 +20,16 @@ def carregar_banco_sinapi(caminho_csv):
 # Detecta blocos do tipo "5.1.1"
 def ler_planilha_com_blocos(planilha):
     df = pd.read_excel(planilha, engine='openpyxl', skiprows=4)
-    df.columns = [col.strip() for col in df.columns]
+    
+    # Padroniza nomes das colunas
+    df.columns = [str(col).strip().replace("ã", "a").replace("ç", "c").replace(".", "").lower() for col in df.columns]
 
     blocos = []
     bloco_atual = None
 
     for idx, linha in df.iterrows():
         primeira_col = str(linha[0]).strip()
-        descricao = str(linha.get('Descrição', '')).strip() if 'Descrição' in df.columns else ''
+        descricao = str(linha.get('descricao', '')).strip()
 
         if primeira_col and primeira_col[0].isdigit() and (descricao == '' or len(descricao) < 20):
             bloco_atual = {'titulo': primeira_col, 'linhas': []}
@@ -41,10 +43,9 @@ def ler_planilha_com_blocos(planilha):
     return blocos
 
 # Tipo da linha
-
 def tipo_linha(linha):
     primeira_col = str(linha[0]).strip()
-    descricao = str(linha.get('Descrição', '')).strip().lower()
+    descricao = str(linha.get('descricao', '')).strip().lower()
 
     if "composição" in primeira_col.lower() or "composição" in descricao:
         return "Composição"
@@ -53,13 +54,12 @@ def tipo_linha(linha):
     elif "insumo" in primeira_col.lower() or "insumo" in descricao:
         return "Insumo"
     else:
-        banco = str(linha.get('Banco', '')).strip().upper()
+        banco = str(linha.get('banco', '')).strip().upper()
         if banco == 'SINAPI':
             return "Item SINAPI"
         return "Outro"
 
 # Busca composição
-
 def buscar_composicao(codigo, descricao, banco):
     def limpar(texto):
         if not texto:
@@ -97,7 +97,6 @@ def buscar_composicao(codigo, descricao, banco):
     return pd.DataFrame()
 
 # Gera cronograma
-
 def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
     cronograma = []
     dia_atual = data_inicio
@@ -115,16 +114,16 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
                 continue
 
             codigo = str(linha[1]).strip() if len(linha) > 1 else ""
-            descricao = str(linha.get('Descrição', '')).strip()
+            descricao = str(linha.get('descricao', '')).strip()
+            if not descricao and len(linha) > 3:
+                descricao = str(linha[3]).strip()
 
-            # Corrigido: melhor conversão da quantidade com fallback
             quantidade_raw = (
-    linha.get('Quant.') or 
-    linha.get('Quant') or 
-    linha.get('Quantidade') or 
-    linha.get('Quantitativo') or 
-    0
-)
+                linha.get('quant') or 
+                linha.get('quantidade') or 
+                linha.get('quantitativo') or 
+                0
+            )
             try:
                 quantidade = float(str(quantidade_raw).replace(',', '.'))
             except:
@@ -144,10 +143,10 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
                 if tipo_aux != "Composição Auxiliar":
                     break
 
-                desc_aux = str(linha_aux.get('Descrição', '')).strip()
+                desc_aux = str(linha_aux.get('descricao', '')).strip()
                 if any(p in desc_aux.lower() for p in ["servente", "gesseiro", "pedreiro", "azulejista", "encargos"]):
                     try:
-                        q_aux_raw = linha_aux.get('Quant.') or linha_aux.get('Quant') or 0
+                        q_aux_raw = linha_aux.get('quant') or linha_aux.get('quantidade') or 0
                         q_aux = float(str(q_aux_raw).replace(',', '.'))
                         profissionais.append((desc_aux, q_aux))
                     except:
