@@ -61,21 +61,51 @@ def tipo_linha(linha):
 
 # 🔍 NOVA função com similaridade
 def buscar_composicao(codigo, descricao, banco):
+    import difflib
+    import re
+
+    def limpar(texto):
+        if not texto:
+            return ''
+        texto = texto.lower()
+        texto = re.sub(r'[^a-z0-9\s]', '', texto)  # remove pontuação
+        texto = re.sub(r'\b(af|coral|suvinil|premium|equino[a-z]*)\b', '', texto)  # remove marcas/sufixos
+        texto = re.sub(r'\s+', ' ', texto)
+        return texto.strip()
+
     codigo_str = str(codigo).strip()
+    descricao_limpa = limpar(descricao)
+
+    st.write("🔍 Buscando composição para:")
+    st.write(f"• Código da planilha: `{codigo_str}`")
+    st.write(f"• Descrição original: `{descricao}`")
+    st.write(f"• Descrição limpa: `{descricao_limpa}`")
+
+    # 1. Busca por código exato
     comp = banco[banco['CODIGO DA COMPOSICAO'].astype(str).str.strip() == codigo_str]
     if not comp.empty:
+        st.success(f"✅ Encontrado por código exato: {codigo_str}")
         return comp
 
-    descricao_ref = descricao.lower().strip()
-    descricoes_banco = banco['DESCRICAO DA COMPOSICAO'].str.lower().fillna('').tolist()
-    mais_proxima = difflib.get_close_matches(descricao_ref, descricoes_banco, n=1, cutoff=0.4)
+    # 2. Busca por código parcial
+    codigo_base = re.sub(r'[^\d]', '', codigo_str)
+    if codigo_base:
+        comp = banco[banco['CODIGO DA COMPOSICAO'].astype(str).str.contains(codigo_base)]
+        if not comp.empty:
+            st.info(f"🔎 Encontrado por código parcial: {codigo_base}")
+            return comp
 
-    if mais_proxima:
-        comp = banco[banco['DESCRICAO DA COMPOSICAO'].str.lower() == mais_proxima[0]]
-        # Descomente abaixo para debug:
-        # st.info(f"🔎 Substituindo '{descricao}' por '{mais_proxima[0]}'")
+    # 3. Busca por descrição limpa (similaridade)
+    banco['DESC_LIMPA'] = banco['DESCRICAO DA COMPOSICAO'].fillna('').apply(limpar)
+    descricoes_banco = banco['DESC_LIMPA'].tolist()
+    match = difflib.get_close_matches(descricao_limpa, descricoes_banco, n=1, cutoff=0.4)
+
+    if match:
+        st.info(f"🔁 Match por descrição: {match[0]}")
+        comp = banco[banco['DESC_LIMPA'] == match[0]]
         return comp
 
+    st.error("❌ Nenhuma composição correspondente encontrada.")
     return pd.DataFrame()
 
 # Gera cronograma
