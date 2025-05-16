@@ -118,12 +118,12 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
             if not descricao and len(linha) > 3:
                 descricao = str(linha[3]).strip()
 
-            quantidade_raw = (
-                linha.get('quant') or 
-                linha.get('quantidade') or 
-                linha.get('quantitativo') or 
-                0
-            )
+            possiveis_colunas_quantidade = ['quant', 'quantidade', 'quantitativo', 'qtd', 'qtde', 'quant.']
+quantidade_raw = 0
+for col in possiveis_colunas_quantidade:
+    if col in linha:
+        quantidade_raw = linha[col]
+        break
             try:
                 quantidade = float(str(quantidade_raw).replace(',', '.'))
             except:
