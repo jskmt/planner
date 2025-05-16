@@ -1,12 +1,12 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-import difflib  # ⬅️ IMPORTANTE para a busca por similaridade
+import re
+import difflib
 
 st.set_page_config(page_title="Planejador de Obra", layout="wide")
 st.title("📅 Planejador de Obra com Banco SINAPI")
 
-# Carrega banco SINAPI (csv separado por vírgula, UTF-8)
 def carregar_banco_sinapi(caminho_csv):
     try:
         banco = pd.read_csv(caminho_csv, sep=",", encoding="utf-8")
@@ -16,7 +16,6 @@ def carregar_banco_sinapi(caminho_csv):
         st.error(f"Erro ao carregar banco SINAPI: {e}")
         return None
 
-# Função para detectar blocos do tipo "5.1.1", "5.1.2" na primeira coluna
 def ler_planilha_com_blocos(planilha):
     df = pd.read_excel(planilha, engine='openpyxl', skiprows=4)
     df.columns = [col.strip() for col in df.columns]
@@ -42,7 +41,6 @@ def ler_planilha_com_blocos(planilha):
 
     return blocos
 
-# Identifica tipo da linha
 def tipo_linha(linha):
     primeira_col = str(linha[0]).strip()
     descricao = str(linha.get('Descrição', '')).strip().lower()
@@ -59,32 +57,22 @@ def tipo_linha(linha):
             return "Item SINAPI"
         return "Outro"
 
-# 🔍 NOVA função com similaridade
+def limpar(texto):
+    if not texto:
+        return ''
+    texto = texto.lower()
+    texto = re.sub(r'[^a-z0-9\s]', '', texto)  # remove pontuação
+    texto = re.sub(r'\b(af|coral|suvinil|premium|equino[a-z]*)\b', '', texto)  # remove marcas/sufixos
+    texto = re.sub(r'\s+', ' ', texto)
+    return texto.strip()
+
 def buscar_composicao(codigo, descricao, banco):
-    import difflib
-    import re
-
-    def limpar(texto):
-        if not texto:
-            return ''
-        texto = texto.lower()
-        texto = re.sub(r'[^a-z0-9\s]', '', texto)  # remove pontuação
-        texto = re.sub(r'\b(af|coral|suvinil|premium|equino[a-z]*)\b', '', texto)  # remove marcas/sufixos
-        texto = re.sub(r'\s+', ' ', texto)
-        return texto.strip()
-
     codigo_str = str(codigo).strip()
     descricao_limpa = limpar(descricao)
-
-    st.write("🔍 Buscando composição para:")
-    st.write(f"• Código da planilha: `{codigo_str}`")
-    st.write(f"• Descrição original: `{descricao}`")
-    st.write(f"• Descrição limpa: `{descricao_limpa}`")
 
     # 1. Busca por código exato
     comp = banco[banco['CODIGO DA COMPOSICAO'].astype(str).str.strip() == codigo_str]
     if not comp.empty:
-        st.success(f"✅ Encontrado por código exato: {codigo_str}")
         return comp
 
     # 2. Busca por código parcial
@@ -92,7 +80,6 @@ def buscar_composicao(codigo, descricao, banco):
     if codigo_base:
         comp = banco[banco['CODIGO DA COMPOSICAO'].astype(str).str.contains(codigo_base)]
         if not comp.empty:
-            st.info(f"🔎 Encontrado por código parcial: {codigo_base}")
             return comp
 
     # 3. Busca por descrição limpa (similaridade)
@@ -101,21 +88,16 @@ def buscar_composicao(codigo, descricao, banco):
     match = difflib.get_close_matches(descricao_limpa, descricoes_banco, n=1, cutoff=0.4)
 
     if match:
-        st.info(f"🔁 Match por descrição: {match[0]}")
         comp = banco[banco['DESC_LIMPA'] == match[0]]
         return comp
 
-    st.error("❌ Nenhuma composição correspondente encontrada.")
     return pd.DataFrame()
 
-# Gera cronograma
 def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
     cronograma = []
     dia_atual = data_inicio
 
     for bloco in blocos:
-        st.write(f"### Bloco {bloco['titulo']} - {len(bloco['linhas'])} linhas")
-
         linhas = bloco['linhas']
         i = 0
 
@@ -141,7 +123,7 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
             profissionais = []
             j = i + 1
 
-            # 1️⃣ Verifica se há auxiliares nas próximas linhas
+            # Verifica se há auxiliares nas próximas linhas
             while j < len(linhas):
                 linha_aux = linhas[j]
                 tipo_aux = tipo_linha(linha_aux)
@@ -159,7 +141,7 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
 
                 j += 1
 
-            # 2️⃣ Se não houver auxiliares listados na planilha, busca no banco
+            # Se não houver auxiliares listados na planilha, busca no banco
             if not profissionais:
                 comp_banco = buscar_composicao(codigo, descricao, banco)
                 if not comp_banco.empty:
@@ -169,12 +151,12 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
                             coef = float(str(prof['COEFICIENTE']).replace(',', '.'))
                             nome_prof = str(prof['DESCRIÇÃO ITEM']).strip()
                             profissionais.append((nome_prof, coef * quantidade))
-                        except:
-                            pass
+                        except Exception as e:
+                            st.warning(f"Erro ao processar profissional em '{descricao}': {e}")
                 else:
                     st.warning(f"⚠️ Nenhuma composição auxiliar ou item de mão de obra encontrado para '{descricao}'")
 
-            # 3️⃣ Gera linha do cronograma para cada profissional
+            # Gera linha do cronograma para cada profissional
             for nome_prof, qtd_horas in profissionais:
                 horas = qtd_horas * 8  # quantidade está em H
                 duracao_dias = max(1, round(horas / 8))
@@ -208,16 +190,18 @@ data_inicio = st.date_input("📆 Data de início da obra", value=datetime.today
 prazo_dias = st.number_input("⏱️ Prazo total de execução (em dias)", min_value=1, value=30)
 
 if arquivo_planilha and sinapi is not None:
-    st.success("✅ Planilha carregada!")
     blocos = ler_planilha_com_blocos(arquivo_planilha)
+
     if not blocos:
         st.error("Não foi possível detectar blocos na planilha.")
     else:
-        df_cronograma = gerar_cronograma(blocos, sinapi, data_inicio, prazo_dias)
-        if df_cronograma is not None and not df_cronograma.empty:
-            st.subheader("📊 Cronograma Gerado")
-            st.dataframe(df_cronograma)
-            csv = df_cronograma.to_csv(index=False).encode('utf-8')
-            st.download_button("⬇️ Baixar cronograma (.csv)", csv, "cronograma.csv", "text/csv")
-        else:
-            st.warning("⚠️ O cronograma está vazio. Verifique os dados da planilha e banco SINAPI.")
+        if st.button("▶️ Gerar Cronograma"):
+            with st.spinner("Gerando cronograma..."):
+                df_cronograma = gerar_cronograma(blocos, sinapi, data_inicio, prazo_dias)
+                if df_cronograma is not None and not df_cronograma.empty:
+                    st.subheader("📊 Cronograma Gerado")
+                    st.dataframe(df_cronograma)
+                    csv = df_cronograma.to_csv(index=False).encode('utf-8')
+                    st.download_button("⬇️ Baixar cronograma (.csv)", csv, "cronograma.csv", "text/csv")
+                else:
+                    st.warning("⚠️ O cronograma está vazio. Verifique os dados da planilha e banco SINAPI.")
