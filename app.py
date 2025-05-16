@@ -136,6 +136,14 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
                 continue
 
             profissionais = comp[comp['TIPO ITEM'].str.lower() == 'mão de obra']
+            # Ignora descrições irrelevantes
+            descricao_lower = descricao.lower()
+            if any(palavra in descricao_lower for palavra in [
+                "engenheiro", "mestre", "encarregado", "administração", "capacitação", "curso", "aluguel"
+            ]):
+                st.info(f"⏩ Ignorado item administrativo ou de aluguel: '{descricao}'")
+                continue
+
             if profissionais.empty:
                 st.warning(f"⚠️ Nenhum item de mão de obra encontrado para '{descricao}'")
                 continue
