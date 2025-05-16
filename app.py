@@ -98,17 +98,16 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
     dia_atual = data_inicio
 
     for bloco in blocos:
-        st.write(f"### Bloco {bloco['titulo']} - {len(bloco['linhas'])} linhas")
+        st.write(f"### DEBUG: Bloco {bloco['titulo']} - {len(bloco['linhas'])} linhas")
 
         linhas = bloco['linhas']
         i = 0
 
         while i < len(linhas):
             linha = linhas[i]
+            st.write(f"🔎 Linha {i}: {linha.to_dict()}")
             tipo = tipo_linha(linha)
-
-            st.write(f"Processando linha: {linha.to_dict()}")
-            st.write(f"Tipo da linha: {tipo}")
+            st.write(f"➡️ Tipo identificado: {tipo}")
 
             if tipo != "Composição":
                 i += 1
@@ -121,69 +120,20 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
             except:
                 quantidade = 0
 
-            st.write(f"Quantidade extraída: {quantidade}")
+            st.write(f"📦 Código: {codigo}, Descrição: {descricao}, Quantidade: {quantidade}")
 
             if quantidade == 0:
+                st.warning(f"⚠️ Quantidade zero na linha: {descricao}")
                 i += 1
                 continue
 
-            profissionais = []
-            j = i + 1
+            # Aqui você pode continuar com a lógica original (auxiliares e banco)
+            # Mas por enquanto vamos testar se ele chega até aqui
 
-            while j < len(linhas):
-                linha_aux = linhas[j]
-                tipo_aux = tipo_linha(linha_aux)
-                if tipo_aux != "Composição Auxiliar":
-                    break
-
-                desc_aux = str(linha_aux.get('Descrição', '')).strip()
-                if any(palavra in desc_aux.lower() for palavra in ["servente", "gesseiro", "pedreiro", "azulejista", "encargos"]):
-                    try:
-                        q_aux = float(str(linha_aux.get('Quant.', linha_aux.get('Quant', '0'))).replace(',', '.'))
-                        nome_aux = desc_aux
-                        profissionais.append((nome_aux, q_aux))
-                    except:
-                        pass
-
-                j += 1
-
-            if not profissionais:
-                comp_banco = buscar_composicao(codigo, descricao, banco)
-                if not comp_banco.empty:
-                    mao_obra = comp_banco[comp_banco['TIPO ITEM'].str.lower() == 'mão de obra']
-                    for _, prof in mao_obra.iterrows():
-                        try:
-                            coef = float(str(prof['COEFICIENTE']).replace(',', '.'))
-                            nome_prof = str(prof['DESCRIÇÃO ITEM']).strip()
-                            profissionais.append((nome_prof, coef * quantidade))
-                        except:
-                            pass
-                else:
-                    st.warning(f"⚠️ Nenhuma composição auxiliar ou item de mão de obra encontrado para '{descricao}'")
-
-            for nome_prof, qtd_horas in profissionais:
-                horas = qtd_horas * 8
-                duracao_dias = max(1, round(horas / 8))
-                data_fim = dia_atual + timedelta(days=duracao_dias - 1)
-
-                cronograma.append({
-                    "Bloco": bloco['titulo'],
-                    "Serviço": descricao,
-                    "Profissional": nome_prof,
-                    "Quantidade de Serviço": quantidade,
-                    "Horas Necessárias": round(horas, 2),
-                    "Data de Início": dia_atual.strftime("%d/%m/%Y"),
-                    "Data de Término": data_fim.strftime("%d/%m/%Y")
-                })
-
-                dia_atual = data_fim + timedelta(days=1)
-                if (dia_atual - data_inicio).days > prazo_dias:
-                    st.warning("⚠️ O prazo informado foi excedido.")
-                    return pd.DataFrame(cronograma)
-
-            i = j
+            i += 1  # Avança o loop
 
     return pd.DataFrame(cronograma)
+
 
 # Interface
 sinapi = carregar_banco_sinapi("banco_sinapi_profissionais_detalhado.csv")
