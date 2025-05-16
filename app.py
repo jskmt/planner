@@ -115,9 +115,16 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
 
     for bloco in blocos:
         st.write(f"### Bloco {bloco['titulo']} - {len(bloco['linhas'])} linhas")
-        for linha in bloco['linhas']:
+
+        linhas = bloco['linhas']
+        i = 0
+
+        while i < len(linhas):
+            linha = linhas[i]
             tipo = tipo_linha(linha)
+
             if tipo != "Composição":
+                i += 1
                 continue
 
             codigo = str(linha[1]).strip() if len(linha) > 1 else ""
@@ -128,37 +135,48 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
                 quantidade = 0
 
             if quantidade == 0:
+                i += 1
                 continue
 
-            comp = buscar_composicao(codigo, descricao, banco)
-            if comp.empty:
-                st.warning(f"⚠️ Composição não encontrada no banco para código '{codigo}' ou descrição '{descricao}'")
-                continue
+            profissionais = []
+            j = i + 1
 
-            profissionais = comp[comp['TIPO ITEM'].str.lower() == 'mão de obra']
-            # Ignora descrições irrelevantes
-            descricao_lower = descricao.lower()
-            if any(palavra in descricao_lower for palavra in [
-                "engenheiro", "mestre", "encarregado", "administração", "capacitação", "curso", "aluguel"
-            ]):
-                st.info(f"⏩ Ignorado item administrativo ou de aluguel: '{descricao}'")
-                continue
+            # 1️⃣ Verifica se há auxiliares nas próximas linhas
+            while j < len(linhas):
+                linha_aux = linhas[j]
+                tipo_aux = tipo_linha(linha_aux)
+                if tipo_aux != "Composição Auxiliar":
+                    break
 
-            if profissionais.empty:
-                st.warning(f"⚠️ Nenhum item de mão de obra encontrado para '{descricao}'")
-                continue
+                desc_aux = str(linha_aux.get('Descrição', '')).strip()
+                if any(palavra in desc_aux.lower() for palavra in ["servente", "gesseiro", "pedreiro", "azulejista", "encargos"]):
+                    try:
+                        q_aux = float(str(linha_aux.get('Quant.', linha_aux.get('Quant', '0'))).replace(',', '.'))
+                        nome_aux = desc_aux
+                        profissionais.append((nome_aux, q_aux))
+                    except:
+                        pass
 
-            for _, prof in profissionais.iterrows():
-                nome_prof = prof['DESCRIÇÃO ITEM']
-                try:
-                    coef = float(str(prof['COEFICIENTE']).replace(',', '.'))
-                except:
-                    coef = 0
+                j += 1
 
-                if coef == 0:
-                    continue
+            # 2️⃣ Se não houver auxiliares listados na planilha, busca no banco
+            if not profissionais:
+                comp_banco = buscar_composicao(codigo, descricao, banco)
+                if not comp_banco.empty:
+                    mao_obra = comp_banco[comp_banco['TIPO ITEM'].str.lower() == 'mão de obra']
+                    for _, prof in mao_obra.iterrows():
+                        try:
+                            coef = float(str(prof['COEFICIENTE']).replace(',', '.'))
+                            nome_prof = str(prof['DESCRIÇÃO ITEM']).strip()
+                            profissionais.append((nome_prof, coef * quantidade))
+                        except:
+                            pass
+                else:
+                    st.warning(f"⚠️ Nenhuma composição auxiliar ou item de mão de obra encontrado para '{descricao}'")
 
-                horas = quantidade * coef * 8
+            # 3️⃣ Gera linha do cronograma para cada profissional
+            for nome_prof, qtd_horas in profissionais:
+                horas = qtd_horas * 8  # quantidade está em H
                 duracao_dias = max(1, round(horas / 8))
                 data_fim = dia_atual + timedelta(days=duracao_dias - 1)
 
@@ -177,7 +195,10 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
                     st.warning("⚠️ O prazo informado foi excedido.")
                     return pd.DataFrame(cronograma)
 
+            i = j  # pula para depois dos auxiliares
+
     return pd.DataFrame(cronograma)
+
 
 # Interface
 sinapi = carregar_banco_sinapi("banco_sinapi_profissionais_detalhado.csv")
