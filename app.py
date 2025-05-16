@@ -116,13 +116,16 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
 
             codigo = str(linha[1]).strip() if len(linha) > 1 else ""
             descricao = str(linha.get('Descrição', '')).strip()
-            try:
-                quantidade = float(str(linha.get('Quant.', linha.get('Quant', '0'))).replace(',', '.'))
-            except:
-                quantidade = None
 
-            if quantidade is None or quantidade <= 0:
-                st.warning(f"⚠️ Quantidade inválida ou zero na linha: {descricao} (valor lido: {quantidade})")
+            # Corrigido: melhor conversão da quantidade com fallback
+            quantidade_raw = linha.get('Quant.') or linha.get('Quant') or 0
+            try:
+                quantidade = float(str(quantidade_raw).replace(',', '.'))
+            except:
+                quantidade = 0.0
+
+            if quantidade <= 0:
+                st.warning(f"⚠️ Quantidade zero ou inválida na linha:\n📦 Código: {codigo}, Descrição: {descricao}, Quantidade lida: {quantidade_raw}")
                 i += 1
                 continue
 
@@ -138,9 +141,9 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
                 desc_aux = str(linha_aux.get('Descrição', '')).strip()
                 if any(p in desc_aux.lower() for p in ["servente", "gesseiro", "pedreiro", "azulejista", "encargos"]):
                     try:
-                        q_aux = float(str(linha_aux.get('Quant.', linha_aux.get('Quant', '0'))).replace(',', '.'))
-                        nome_aux = desc_aux
-                        profissionais.append((nome_aux, q_aux))
+                        q_aux_raw = linha_aux.get('Quant.') or linha_aux.get('Quant') or 0
+                        q_aux = float(str(q_aux_raw).replace(',', '.'))
+                        profissionais.append((desc_aux, q_aux))
                     except:
                         pass
 
@@ -161,15 +164,15 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
                     st.warning(f"⚠️ Nenhuma composição auxiliar ou item de mão de obra encontrado para '{descricao}'")
 
             for nome_prof, qtd_horas in profissionais:
-                horas = qtd_horas * 8
-                duracao_dias = max(1, round(horas / 8))
+                horas = qtd_horas * 8  # 1 trabalhador por 8h/dia
+                duracao_dias = max(1, round(horas / 8))  # sempre pelo menos 1 dia
                 data_fim = dia_atual + timedelta(days=duracao_dias - 1)
 
                 cronograma.append({
                     "Bloco": bloco['titulo'],
                     "Serviço": descricao,
                     "Profissional": nome_prof,
-                    "Quantidade de Serviço": quantidade,
+                    "Quantidade de Serviço": round(quantidade, 4),
                     "Horas Necessárias": round(horas, 2),
                     "Data de Início": dia_atual.strftime("%d/%m/%Y"),
                     "Data de Término": data_fim.strftime("%d/%m/%Y")
