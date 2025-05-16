@@ -118,7 +118,13 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
             descricao = str(linha.get('Descrição', '')).strip()
 
             # Corrigido: melhor conversão da quantidade com fallback
-            quantidade_raw = linha.get('Quant.') or linha.get('Quant') or 0
+            quantidade_raw = (
+    linha.get('Quant.') or 
+    linha.get('Quant') or 
+    linha.get('Quantidade') or 
+    linha.get('Quantitativo') or 
+    0
+)
             try:
                 quantidade = float(str(quantidade_raw).replace(',', '.'))
             except:
