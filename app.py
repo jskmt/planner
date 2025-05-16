@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-import re
 import difflib
+import re
 
 st.set_page_config(page_title="Planejador de Obra", layout="wide")
 st.title("📅 Planejador de Obra com Banco SINAPI")
@@ -61,8 +61,8 @@ def limpar(texto):
     if not texto:
         return ''
     texto = texto.lower()
-    texto = re.sub(r'[^a-z0-9\s]', '', texto)  # remove pontuação
-    texto = re.sub(r'\b(af|coral|suvinil|premium|equino[a-z]*)\b', '', texto)  # remove marcas/sufixos
+    texto = re.sub(r'[^a-z0-9\s]', '', texto)
+    texto = re.sub(r'\b(af|coral|suvinil|premium|equino[a-z]*)\b', '', texto)
     texto = re.sub(r'\s+', ' ', texto)
     return texto.strip()
 
@@ -98,12 +98,17 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
     dia_atual = data_inicio
 
     for bloco in blocos:
+        st.write(f"### Bloco {bloco['titulo']} - {len(bloco['linhas'])} linhas")
+
         linhas = bloco['linhas']
         i = 0
 
         while i < len(linhas):
             linha = linhas[i]
             tipo = tipo_linha(linha)
+
+            st.write(f"Processando linha: {linha.to_dict()}")
+            st.write(f"Tipo da linha: {tipo}")
 
             if tipo != "Composição":
                 i += 1
@@ -116,6 +121,8 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
             except:
                 quantidade = 0
 
+            st.write(f"Quantidade extraída: {quantidade}")
+
             if quantidade == 0:
                 i += 1
                 continue
@@ -123,7 +130,6 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
             profissionais = []
             j = i + 1
 
-            # Verifica se há auxiliares nas próximas linhas
             while j < len(linhas):
                 linha_aux = linhas[j]
                 tipo_aux = tipo_linha(linha_aux)
@@ -141,7 +147,6 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
 
                 j += 1
 
-            # Se não houver auxiliares listados na planilha, busca no banco
             if not profissionais:
                 comp_banco = buscar_composicao(codigo, descricao, banco)
                 if not comp_banco.empty:
@@ -151,14 +156,13 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
                             coef = float(str(prof['COEFICIENTE']).replace(',', '.'))
                             nome_prof = str(prof['DESCRIÇÃO ITEM']).strip()
                             profissionais.append((nome_prof, coef * quantidade))
-                        except Exception as e:
-                            st.warning(f"Erro ao processar profissional em '{descricao}': {e}")
+                        except:
+                            pass
                 else:
                     st.warning(f"⚠️ Nenhuma composição auxiliar ou item de mão de obra encontrado para '{descricao}'")
 
-            # Gera linha do cronograma para cada profissional
             for nome_prof, qtd_horas in profissionais:
-                horas = qtd_horas * 8  # quantidade está em H
+                horas = qtd_horas * 8
                 duracao_dias = max(1, round(horas / 8))
                 data_fim = dia_atual + timedelta(days=duracao_dias - 1)
 
@@ -177,10 +181,9 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
                     st.warning("⚠️ O prazo informado foi excedido.")
                     return pd.DataFrame(cronograma)
 
-            i = j  # pula para depois dos auxiliares
+            i = j
 
     return pd.DataFrame(cronograma)
-
 
 # Interface
 sinapi = carregar_banco_sinapi("banco_sinapi_profissionais_detalhado.csv")
@@ -189,14 +192,20 @@ arquivo_planilha = st.file_uploader("📎 Faça upload da planilha orçamentári
 data_inicio = st.date_input("📆 Data de início da obra", value=datetime.today())
 prazo_dias = st.number_input("⏱️ Prazo total de execução (em dias)", min_value=1, value=30)
 
-if arquivo_planilha and sinapi is not None:
-    blocos = ler_planilha_com_blocos(arquivo_planilha)
+if arquivo_planilha:
+    df_teste = pd.read_excel(arquivo_planilha, engine='openpyxl', skiprows=4)
+    st.write("Colunas da planilha:", df_teste.columns.tolist())
 
-    if not blocos:
-        st.error("Não foi possível detectar blocos na planilha.")
-    else:
-        if st.button("▶️ Gerar Cronograma"):
-            with st.spinner("Gerando cronograma..."):
+    if sinapi is not None:
+        if st.button("▶️ Gerar cronograma"):
+            blocos = ler_planilha_com_blocos(arquivo_planilha)
+            st.write(f"Quantidade de blocos encontrados: {len(blocos)}")
+            for b in blocos:
+                st.write(f"Bloco {b['titulo']} com {len(b['linhas'])} linhas")
+
+            if not blocos:
+                st.error("Não foi possível detectar blocos na planilha.")
+            else:
                 df_cronograma = gerar_cronograma(blocos, sinapi, data_inicio, prazo_dias)
                 if df_cronograma is not None and not df_cronograma.empty:
                     st.subheader("📊 Cronograma Gerado")
@@ -205,3 +214,5 @@ if arquivo_planilha and sinapi is not None:
                     st.download_button("⬇️ Baixar cronograma (.csv)", csv, "cronograma.csv", "text/csv")
                 else:
                     st.warning("⚠️ O cronograma está vazio. Verifique os dados da planilha e banco SINAPI.")
+    else:
+        st.error("Banco SINAPI não carregado.")
