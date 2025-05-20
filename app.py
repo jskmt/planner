@@ -119,25 +119,16 @@ def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
                 descricao = str(linha[3]).strip()
 
             possiveis_colunas_quantidade = ['quant', 'quantidade', 'quantitativo', 'qtd', 'qtde', 'quant.']
-quantidade_raw = 0
-for col in possiveis_colunas_quantidade:
-    if col in linha:
-        # Substituir:
-# quantidade_raw = (linha.get(...) ...)
+            quantidade_raw = 0
+            for col in possiveis_colunas_quantidade:
+                if col in linha:
+                    quantidade_raw = linha[col]
+                    break
 
-# Por:
-possiveis_colunas_quantidade = ['quant', 'quantidade', 'quantitativo', 'qtd', 'qtde', 'quant.']
-quantidade_raw = 0
-for col in possiveis_colunas_quantidade:
-    if col in linha:
-        quantidade_raw = linha[col]
-        break
-
-try:
-    quantidade = float(str(quantidade_raw).replace(',', '.'))
-except:
-    quantidade = 0.0
-
+            try:
+                quantidade = float(str(quantidade_raw).replace(',', '.'))
+            except:
+                quantidade = 0.0
 
             if quantidade <= 0:
                 st.warning(f"⚠️ Quantidade zero ou inválida na linha:\n📦 Código: {codigo}, Descrição: {descricao}, Quantidade lida: {quantidade_raw}")
