@@ -1,217 +1,95 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
-import difflib
-import re
+import numpy as np
+import datetime
 
-st.set_page_config(page_title="Planejador de Obra", layout="wide")
-st.title("📅 Planejador de Obra com Banco SINAPI")
-
-# Carrega banco SINAPI
+# Função para carregar banco SINAPI
+@st.cache_data
 def carregar_banco_sinapi(caminho_csv):
-    try:
-        banco = pd.read_csv(caminho_csv, sep=",", encoding="utf-8")
-        banco.columns = [col.strip().upper() for col in banco.columns]
-        return banco
-    except Exception as e:
-        st.error(f"Erro ao carregar banco SINAPI: {e}")
-        return None
+    return pd.read_csv(caminho_csv, sep=";", encoding="utf-8")
 
-# Detecta blocos do tipo "5.1.1"
-def ler_planilha_com_blocos(planilha):
-    df = pd.read_excel(planilha, engine='openpyxl', skiprows=4)
+# Função para identificar quantidade mesmo com nome diferente
+def detectar_coluna_quantidade(df):
+    for col in df.columns:
+        col_normalizado = str(col).strip().lower()
+        if 'quant' in col_normalizado:
+            return col
+    return None
+
+# Função principal
+def main():
+    st.title("📅 Gerador de Cronograma de Obra com Base no SINAPI")
     
-    # Padroniza nomes das colunas
-    df.columns = [str(col).strip().replace("ã", "a").replace("ç", "c").replace(".", "").lower() for col in df.columns]
+    planilha = st.file_uploader("📥 Envie sua planilha orçamentária (.xlsx)", type=["xlsx"])
+    banco = st.file_uploader("📥 Envie o banco SINAPI (.csv)", type=["csv"])
+    
+    if planilha and banco:
+        try:
+            df_planilha = pd.read_excel(planilha, engine="openpyxl", header=4)
+            df_sinapi = carregar_banco_sinapi(banco)
 
-    blocos = []
-    bloco_atual = None
+            col_quantidade = detectar_coluna_quantidade(df_planilha)
+            if not col_quantidade:
+                st.error("❌ Coluna de quantidade não encontrada na planilha.")
+                return
 
-    for idx, linha in df.iterrows():
-        primeira_col = str(linha[0]).strip()
-        descricao = str(linha.get('descricao', '')).strip()
+            atividades = []
+            for _, row in df_planilha.iterrows():
+                codigo = str(row.get("Código", "")).strip()
+                descricao = str(row.get("Descrição", "")).strip()
+                try:
+                    quantidade = float(str(row.get(col_quantidade, 0)).replace(",", "."))
+                except:
+                    quantidade = 0
 
-        if primeira_col and primeira_col[0].isdigit() and (descricao == '' or len(descricao) < 20):
-            bloco_atual = {'titulo': primeira_col, 'linhas': []}
-            blocos.append(bloco_atual)
-        else:
-            if linha.isnull().all():
-                continue
-            if bloco_atual:
-                bloco_atual['linhas'].append(linha)
+                if not codigo or quantidade <= 0:
+                    st.warning(f"⚠️ Quantidade zero ou inválida na linha: 📦 Código: {codigo}, Descrição: {descricao}, Quantidade lida: {quantidade}")
+                    continue
 
-    return blocos
+                dados_banco = df_sinapi[df_sinapi['codigo'] == codigo]
+                if dados_banco.empty:
+                    st.warning(f"❓ Código {codigo} não encontrado no banco SINAPI.")
+                    continue
 
-# Tipo da linha
-def tipo_linha(linha):
-    primeira_col = str(linha[0]).strip()
-    descricao = str(linha.get('descricao', '')).strip().lower()
+                dados_banco = dados_banco.iloc[0]
+                produtividade_dia = dados_banco['produtividade_dia']
+                profissionais = int(dados_banco['profissionais'])
 
-    if "composição" in primeira_col.lower() or "composição" in descricao:
-        return "Composição"
-    elif "auxiliar" in primeira_col.lower() or "auxiliar" in descricao:
-        return "Composição Auxiliar"
-    elif "insumo" in primeira_col.lower() or "insumo" in descricao:
-        return "Insumo"
-    else:
-        banco = str(linha.get('banco', '')).strip().upper()
-        if banco == 'SINAPI':
-            return "Item SINAPI"
-        return "Outro"
+                if produtividade_dia <= 0 or profissionais <= 0:
+                    st.warning(f"🚫 Dados incompletos para o código {codigo}.")
+                    continue
 
-# Busca composição
-def buscar_composicao(codigo, descricao, banco):
-    def limpar(texto):
-        if not texto:
-            return ''
-        texto = texto.lower()
-        texto = re.sub(r'[^a-z0-9\s]', '', texto)
-        texto = re.sub(r'\b(af|coral|suvinil|premium|equino[a-z]*)\b', '', texto)
-        texto = re.sub(r'\s+', ' ', texto)
-        return texto.strip()
-
-    codigo_str = str(codigo).strip()
-    descricao_limpa = limpar(descricao)
-
-    # Código exato
-    comp = banco[banco['CODIGO DA COMPOSICAO'].astype(str).str.strip() == codigo_str]
-    if not comp.empty:
-        return comp
-
-    # Código parcial
-    codigo_base = re.sub(r'[^\d]', '', codigo_str)
-    if codigo_base:
-        comp = banco[banco['CODIGO DA COMPOSICAO'].astype(str).str.contains(codigo_base)]
-        if not comp.empty:
-            return comp
-
-    # Similaridade
-    banco['DESC_LIMPA'] = banco['DESCRICAO DA COMPOSICAO'].fillna('').apply(limpar)
-    descricoes_banco = banco['DESC_LIMPA'].tolist()
-    match = difflib.get_close_matches(descricao_limpa, descricoes_banco, n=1, cutoff=0.4)
-
-    if match:
-        comp = banco[banco['DESC_LIMPA'] == match[0]]
-        return comp
-
-    return pd.DataFrame()
-
-# Gera cronograma
-def gerar_cronograma(blocos, banco, data_inicio, prazo_dias):
-    cronograma = []
-    dia_atual = data_inicio
-
-    for bloco in blocos:
-        linhas = bloco['linhas']
-        i = 0
-
-        while i < len(linhas):
-            linha = linhas[i]
-            tipo = tipo_linha(linha)
-
-            if tipo != "Composição":
-                i += 1
-                continue
-
-            codigo = str(linha[1]).strip() if len(linha) > 1 else ""
-            descricao = str(linha.get('descricao', '')).strip()
-            if not descricao and len(linha) > 3:
-                descricao = str(linha[3]).strip()
-
-            possiveis_colunas_quantidade = ['quant', 'quantidade', 'quantitativo', 'qtd', 'qtde', 'quant.']
-            quantidade_raw = 0
-            for col in possiveis_colunas_quantidade:
-                if col in linha:
-                    quantidade_raw = linha[col]
-                    break
-
-            try:
-                quantidade = float(str(quantidade_raw).replace(',', '.'))
-            except:
-                quantidade = 0.0
-
-            if quantidade <= 0:
-                st.warning(f"⚠️ Quantidade zero ou inválida na linha:\n📦 Código: {codigo}, Descrição: {descricao}, Quantidade lida: {quantidade_raw}")
-                i += 1
-                continue
-
-            profissionais = []
-            j = i + 1
-
-            while j < len(linhas):
-                linha_aux = linhas[j]
-                tipo_aux = tipo_linha(linha_aux)
-                if tipo_aux != "Composição Auxiliar":
-                    break
-
-                desc_aux = str(linha_aux.get('descricao', '')).strip()
-                if any(p in desc_aux.lower() for p in ["servente", "gesseiro", "pedreiro", "azulejista", "encargos"]):
-                    try:
-                        q_aux_raw = linha_aux.get('quant') or linha_aux.get('quantidade') or 0
-                        q_aux = float(str(q_aux_raw).replace(',', '.'))
-                        profissionais.append((desc_aux, q_aux))
-                    except:
-                        pass
-
-                j += 1
-
-            if not profissionais:
-                comp_banco = buscar_composicao(codigo, descricao, banco)
-                if not comp_banco.empty:
-                    mao_obra = comp_banco[comp_banco['TIPO ITEM'].str.lower() == 'mão de obra']
-                    for _, prof in mao_obra.iterrows():
-                        try:
-                            coef = float(str(prof['COEFICIENTE']).replace(',', '.'))
-                            nome_prof = str(prof['DESCRIÇÃO ITEM']).strip()
-                            profissionais.append((nome_prof, coef * quantidade))
-                        except:
-                            pass
-                else:
-                    st.warning(f"⚠️ Nenhuma composição auxiliar ou item de mão de obra encontrado para '{descricao}'")
-
-            for nome_prof, qtd_horas in profissionais:
-                horas = qtd_horas * 8  # 1 trabalhador por 8h/dia
-                duracao_dias = max(1, round(horas / 8))  # sempre pelo menos 1 dia
-                data_fim = dia_atual + timedelta(days=duracao_dias - 1)
-
-                cronograma.append({
-                    "Bloco": bloco['titulo'],
-                    "Serviço": descricao,
-                    "Profissional": nome_prof,
-                    "Quantidade de Serviço": round(quantidade, 4),
-                    "Horas Necessárias": round(horas, 2),
-                    "Data de Início": dia_atual.strftime("%d/%m/%Y"),
-                    "Data de Término": data_fim.strftime("%d/%m/%Y")
+                dias_necessarios = np.ceil(quantidade / produtividade_dia)
+                atividades.append({
+                    "Código": codigo,
+                    "Descrição": descricao,
+                    "Quantidade": quantidade,
+                    "Produtividade (un/dia)": produtividade_dia,
+                    "Profissionais": profissionais,
+                    "Dias necessários": int(dias_necessarios)
                 })
 
-                dia_atual = data_fim + timedelta(days=1)
-                if (dia_atual - data_inicio).days > prazo_dias:
-                    st.warning("⚠️ O prazo informado foi excedido.")
-                    return pd.DataFrame(cronograma)
+            if atividades:
+                df_cronograma = pd.DataFrame(atividades)
 
-            i = j
-
-    return pd.DataFrame(cronograma)
-
-# Interface
-sinapi = carregar_banco_sinapi("banco_sinapi_profissionais_detalhado.csv")
-
-arquivo_planilha = st.file_uploader("📎 Faça upload da planilha orçamentária", type=["xlsx"])
-data_inicio = st.date_input("📆 Data de início da obra", value=datetime.today())
-prazo_dias = st.number_input("⏱️ Prazo total de execução (em dias)", min_value=1, value=30)
-
-if arquivo_planilha and sinapi is not None:
-    blocos = ler_planilha_com_blocos(arquivo_planilha)
-
-    if not blocos:
-        st.error("Não foi possível detectar blocos na planilha.")
-    else:
-        if st.button("🚀 Gerar Cronograma"):
-            df_cronograma = gerar_cronograma(blocos, sinapi, data_inicio, prazo_dias)
-            if df_cronograma is not None and not df_cronograma.empty:
-                st.subheader("📊 Cronograma Gerado")
+                st.subheader("📋 Cronograma Gerado")
                 st.dataframe(df_cronograma)
-                csv = df_cronograma.to_csv(index=False).encode('utf-8')
-                st.download_button("⬇️ Baixar cronograma (.csv)", csv, "cronograma.csv", "text/csv")
+
+                data_inicio = st.date_input("🗓️ Data de início da obra", datetime.date.today())
+                df_cronograma["Início"] = [data_inicio + datetime.timedelta(days=int(sum(df_cronograma["Dias necessários"][:i]))) for i in range(len(df_cronograma))]
+                df_cronograma["Término"] = df_cronograma["Início"] + pd.to_timedelta(df_cronograma["Dias necessários"], unit="D")
+
+                st.subheader("📅 Cronograma com Datas")
+                st.dataframe(df_cronograma[["Código", "Descrição", "Início", "Término", "Dias necessários", "Profissionais"]])
+
+                # Download
+                st.download_button("📥 Baixar Cronograma Excel", df_cronograma.to_csv(index=False).encode("utf-8"), "cronograma.csv", "text/csv")
+
             else:
-                st.warning("⚠️ O cronograma está vazio. Verifique os dados da planilha e banco SINAPI.")
+                st.error("Nenhuma atividade válida foi processada.")
+
+        except Exception as e:
+            st.error(f"Erro ao processar os arquivos: {e}")
+
+if __name__ == "__main__":
+    main()
